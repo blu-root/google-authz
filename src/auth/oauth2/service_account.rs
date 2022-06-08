@@ -2,6 +2,7 @@ use std::{fmt, time::SystemTime};
 
 use hyper::Uri;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use tracing::trace;
 
 use crate::{
     auth::oauth2::{http::Client, token},
@@ -95,9 +96,12 @@ impl token::Fetcher for ServiceAccount {
             }
         };
 
+        let assertion = encode(&self.header, &claims, &self.private_key).unwrap();
+        trace!(%assertion);
+
         let req = self.inner.request(&self.token_uri, &Payload {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: &encode(&self.header, &claims, &self.private_key).unwrap(),
+            assertion: &assertion,
         });
         Box::pin(self.inner.send(req))
     }
