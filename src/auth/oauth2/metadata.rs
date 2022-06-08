@@ -13,6 +13,11 @@ struct Query<'a> {
     scopes: &'a str,
 }
 
+#[derive(serde::Serialize)]
+struct AudienceQuery<'a> {
+    audience: &'a str,
+}
+
 pub struct Metadata {
     inner: gcemeta::Client<HttpConnector, Body>,
     path_and_query: PathAndQuery,
@@ -20,7 +25,7 @@ pub struct Metadata {
 
 impl Metadata {
     pub(crate) fn new(meta: Box<credentials::Metadata>) -> Self {
-        let path_and_query = path_and_query(meta.account, meta.scopes);
+        let path_and_query = path_and_query(meta.account, meta.scopes, meta.audience);
         let path_and_query = PathAndQuery::from_str(&path_and_query).unwrap();
         Self {
             inner: meta.client,
@@ -29,11 +34,21 @@ impl Metadata {
     }
 }
 
-fn path_and_query(account: Option<String>, scopes: Vec<String>) -> String {
+fn path_and_query(
+    account: Option<String>,
+    scopes: Vec<String>,
+    audience: Option<String>,
+) -> String {
     let mut path_and_query = "/computeMetadata/v1/instance/service-accounts/".to_owned();
     path_and_query.push_str(account.as_ref().map_or("default", String::as_str));
     path_and_query.push_str("/token");
-    if !scopes.is_empty() {
+    if let Some(aud) = audience {
+        path_and_query.push('?');
+        let query = AudienceQuery {
+            audience: aud.as_str(),
+        };
+        path_and_query.push_str(&serde_urlencoded::to_string(&query).unwrap());
+    } else if !scopes.is_empty() {
         path_and_query.push('?');
         let query = Query {
             scopes: &scopes.join(","),
@@ -67,17 +82,17 @@ mod test {
     #[test]
     fn test_path_and_query() {
         assert_eq!(
-            &path_and_query(None, vec![]),
+            &path_and_query(None, vec![], None),
             "/computeMetadata/v1/instance/service-accounts/default/token"
         );
 
         assert_eq!(
-            &path_and_query(None, vec!["https://www.googleapis.com/auth/cloud-platform".to_owned()]),
+            &path_and_query(None, vec!["https://www.googleapis.com/auth/cloud-platform".to_owned()], None),
             "/computeMetadata/v1/instance/service-accounts/default/token?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform"
         );
 
         assert_eq!(
-            &path_and_query(None, vec!["scope1".to_owned(), "scope2".to_owned()]),
+            &path_and_query(None, vec!["scope1".to_owned(), "scope2".to_owned()], None),
             "/computeMetadata/v1/instance/service-accounts/default/token?scopes=scope1%2Cscope2"
         );
     }

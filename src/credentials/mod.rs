@@ -56,6 +56,7 @@ pub struct ServiceAccount {
 pub struct Metadata {
     pub(crate) client: gcemeta::Client<HttpConnector>,
     pub(crate) scopes: Vec<String>,
+    pub(crate) audience: Option<String>,
     pub(crate) account: Option<String>,
 }
 
@@ -152,9 +153,11 @@ impl<'a> Builder<'a> {
             Source::ApiKey { key } => impls::from_api_key(key),
             Source::Json { data } => impls::from_json(data, &self.scopes, &self.audience),
             Source::JsonFile { path } => impls::from_json_file(path, &self.scopes, &self.audience),
-            Source::Metadata { account } => Ok(impls::from_metadata(account, &self.scopes)
-                .await?
-                .expect("this process must be running on GCE")),
+            Source::Metadata { account } => {
+                Ok(impls::from_metadata(account, &self.scopes, &self.audience)
+                    .await?
+                    .expect("this process must be running on GCE"))
+            }
         }
     }
 }

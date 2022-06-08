@@ -27,7 +27,7 @@ where
         c
     } else if let Some(c) = from_well_known_file(scopes, audience)? {
         c
-    } else if let Some(c) = from_metadata(None, scopes).await? {
+    } else if let Some(c) = from_metadata(None, scopes, audience).await? {
         c
     } else {
         return Err(Error::CredentialsSource);
@@ -147,10 +147,15 @@ where
     })
 }
 
-pub(super) async fn from_metadata<S: AsRef<str>>(
+pub(super) async fn from_metadata<'a, S, T>(
     account: Option<String>,
     scopes: &[S],
-) -> Result<Option<Credentials>> {
+    audience: &'a Option<T>,
+) -> Result<Option<Credentials>>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     let client = gcemeta::Client::new();
     // Check if the account is valid as path string.
     if let Some(ref account) = account {
@@ -168,6 +173,7 @@ pub(super) async fn from_metadata<S: AsRef<str>>(
                 client,
                 scopes: scopes.iter().map(|s| s.as_ref().into()).collect(),
                 account,
+                audience: audience.as_ref().map(|s| s.into()),
             }
             .into(),
         )))
