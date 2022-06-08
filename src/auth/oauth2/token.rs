@@ -69,6 +69,9 @@ impl TryFrom<Response> for Token {
                     let value = format!("Bearer {}", id_token);
                     HeaderValue::from_str(&value)
                         .map(|hv| {
+                            // TODO - to get expiry, it is reccomended to decode the recieved JWT and
+                            //  use the `exp` claim contained in the payload. See here:
+                            // https://cloud.google.com/run/docs/authenticating/service-to-service#use_the_metadata_server
                             let expiry = Instant::now() + Duration::from_secs(60 * 60);
                             Token::new(hv, expiry)
                         })

@@ -8,6 +8,8 @@ use crate::{
     credentials,
 };
 
+use super::token::Response;
+
 #[derive(serde::Serialize)]
 struct Query<'a> {
     scopes: &'a str,
@@ -21,15 +23,18 @@ struct AudienceQuery<'a> {
 pub struct Metadata {
     inner: gcemeta::Client<HttpConnector, Body>,
     path_and_query: PathAndQuery,
+    is_service_to_service: bool,
 }
 
 impl Metadata {
     pub(crate) fn new(meta: Box<credentials::Metadata>) -> Self {
+        let is_service_to_service = meta.audience.is_some();
         let path_and_query = path_and_query(meta.account, meta.scopes, meta.audience);
         let path_and_query = PathAndQuery::from_str(&path_and_query).unwrap();
         Self {
             inner: meta.client,
             path_and_query,
+            is_service_to_service,
         }
     }
 }
@@ -71,11 +76,20 @@ impl fmt::Debug for Metadata {
 impl token::Fetcher for Metadata {
     fn fetch(&self) -> token::ResponseFuture {
         // Already checked that this process is running on GCE.
-        let fut = self
-            .inner
-            .get_as(self.path_and_query.clone())
-            .map_err(auth::Error::Gcemeta);
-        Box::pin(fut)
+        if self.is_service_to_service {
+            let fut = self
+                .inner
+                .get(self.path_and_query.clone(), true)
+                .map_ok(|s| Response::IdToken { id_token: s })
+                .map_err(auth::Error::Gcemeta);
+            Box::pin(fut)
+        } else {
+            let fut = self
+                .inner
+                .get_as(self.path_and_query.clone())
+                .map_err(auth::Error::Gcemeta);
+            Box::pin(fut)
+        }
     }
 }
 
