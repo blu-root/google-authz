@@ -128,7 +128,9 @@ impl<'a> Builder<'a> {
 
     #[must_use]
     pub fn metadata(mut self, account: impl Into<Option<String>>) -> Self {
-        self.source = Source::Metadata { account: account.into() };
+        self.source = Source::Metadata {
+            account: account.into(),
+        };
         self
     }
 

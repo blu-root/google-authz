@@ -98,16 +98,19 @@ impl token::Fetcher for ServiceAccount {
                 Some(&self.client_email)
             } else {
                 None
-            }
+            },
         };
 
         let assertion = encode(&self.header, &claims, &self.private_key).unwrap();
         trace!(%assertion);
 
-        let req = self.inner.request(&self.token_uri, &Payload {
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: &assertion,
-        });
+        let req = self.inner.request(
+            &self.token_uri,
+            &Payload {
+                grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                assertion: &assertion,
+            },
+        );
         Box::pin(self.inner.send(req))
     }
 }

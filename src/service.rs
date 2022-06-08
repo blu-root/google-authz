@@ -32,7 +32,11 @@ pub struct Builder<S> {
 
 impl Builder<()> {
     pub fn new<S>(service: S) -> Builder<S> {
-        Builder { config: Default::default(), credentials: Default::default(), service }
+        Builder {
+            config: Default::default(),
+            credentials: Default::default(),
+            service,
+        }
     }
 }
 
@@ -60,12 +64,19 @@ impl<S> Builder<S> {
     where
         S: tower_service::Service<Request<B>>,
     {
-        let Builder { config, credentials, service } = self;
+        let Builder {
+            config,
+            credentials,
+            service,
+        } = self;
         let credentials = match credentials {
             Some(credentials) => credentials,
             None => Credentials::new().await,
         };
-        GoogleAuthz { auth: Auth::new(credentials, config), service }
+        GoogleAuthz {
+            auth: Auth::new(credentials, config),
+            service,
+        }
     }
 }
 
@@ -89,7 +100,10 @@ impl GoogleAuthz<()> {
 
 impl<S: Clone> Clone for GoogleAuthz<S> {
     fn clone(&self) -> Self {
-        Self { auth: self.auth.clone(), service: self.service.clone() }
+        Self {
+            auth: self.auth.clone(),
+            service: self.service.clone(),
+        }
     }
 }
 
@@ -158,8 +172,14 @@ mod test {
             }
         }
 
-        let credentials = Credentials::builder().no_credentials().build().await.unwrap();
-        let svc = GoogleAuthz::builder(Counter(0)).credentials(credentials).build();
+        let credentials = Credentials::builder()
+            .no_credentials()
+            .build()
+            .await
+            .unwrap();
+        let svc = GoogleAuthz::builder(Counter(0))
+            .credentials(credentials)
+            .build();
         assert_send(&svc);
         assert_sync(&svc);
     }

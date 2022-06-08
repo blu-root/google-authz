@@ -55,7 +55,7 @@ where
 }
 
 pub(super) fn from_well_known_file<'a, S, T>(
-    scopes: &'a [S], 
+    scopes: &'a [S],
     audience: &'a Option<T>,
 ) -> Result<Option<Credentials>>
 where
@@ -121,7 +121,10 @@ where
             return Ok(Credentials::ServiceAccount(sa));
         }
         Err(err) => {
-            trace!("failed deserialize to service account credentials: {:?}", err);
+            trace!(
+                "failed deserialize to service account credentials: {:?}",
+                err
+            );
             err
         }
     };
@@ -138,7 +141,10 @@ where
         }
     };
 
-    Err(Error::CredentialsFormat { user, service_account })
+    Err(Error::CredentialsFormat {
+        user,
+        service_account,
+    })
 }
 
 pub(super) async fn from_metadata<S: AsRef<str>>(
@@ -157,11 +163,14 @@ pub(super) async fn from_metadata<S: AsRef<str>>(
     trace!("this process is running on GCE: {}", on);
 
     if on {
-        Ok(Some(Credentials::Metadata(Metadata {
-            client,
-            scopes: scopes.iter().map(|s| s.as_ref().into()).collect(),
-            account,
-        }.into())))
+        Ok(Some(Credentials::Metadata(
+            Metadata {
+                client,
+                scopes: scopes.iter().map(|s| s.as_ref().into()).collect(),
+                account,
+            }
+            .into(),
+        )))
     } else {
         Ok(None)
     }
@@ -174,7 +183,10 @@ mod test {
     #[test]
     fn test_from_api_key() {
         assert!(from_api_key("こんにちは".into()).is_err());
-        assert_eq!(from_api_key("api-key".into()).unwrap(), Credentials::ApiKey("api-key".into()));
+        assert_eq!(
+            from_api_key("api-key".into()).unwrap(),
+            Credentials::ApiKey("api-key".into())
+        );
     }
 
     #[test]

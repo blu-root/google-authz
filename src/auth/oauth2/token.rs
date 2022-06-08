@@ -22,32 +22,62 @@ impl Token {
 
     pub fn expired(&self, at: Instant) -> bool {
         const EXPIRY_DELTA: Duration = Duration::from_secs(10);
-        self.expiry.checked_duration_since(at).map(|dur| dur < EXPIRY_DELTA).unwrap_or(true)
+        self.expiry
+            .checked_duration_since(at)
+            .map(|dur| dur < EXPIRY_DELTA)
+            .unwrap_or(true)
     }
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct Response {
-    pub token_type: String,
-    pub access_token: String,
-    pub expires_in: u64,
+#[serde(untagged)]
+pub enum Response {
+    AccessToken {
+        token_type: String,
+        access_token: String,
+        expires_in: u64,
+    },
+    IdToken {
+        id_token: String,
+    },
 }
 
 impl TryFrom<Response> for Token {
     type Error = auth::Error;
 
     fn try_from(response: Response) -> Result<Self, Self::Error> {
-        if !response.token_type.is_empty()
-            && !response.access_token.is_empty()
-            && response.expires_in > 0
-        {
-            let value = format!("{} {}", response.token_type, response.access_token);
-            if let Ok(value) = HeaderValue::from_str(&value) {
-                let expiry = Instant::now() + Duration::from_secs(response.expires_in);
-                return Ok(Token::new(value, expiry));
+        match response {
+            Response::AccessToken {
+                ref token_type,
+                ref access_token,
+                expires_in,
+            } => {
+                if !token_type.is_empty() && !access_token.is_empty() && expires_in > 0 {
+                    let value = format!("{} {}", token_type, access_token);
+                    HeaderValue::from_str(&value)
+                        .map(|hv| {
+                            let expiry = Instant::now() + Duration::from_secs(expires_in);
+                            Token::new(hv, expiry)
+                        })
+                        .map_err(|_| auth::Error::TokenFormat(response))
+                } else {
+                    Err(auth::Error::TokenFormat(response))
+                }
+            }
+            Response::IdToken { ref id_token } => {
+                if !id_token.is_empty() {
+                    let value = format!("Bearer {}", id_token);
+                    HeaderValue::from_str(&value)
+                        .map(|hv| {
+                            let expiry = Instant::now() + Duration::from_secs(60 * 60);
+                            Token::new(hv, expiry)
+                        })
+                        .map_err(|_| auth::Error::TokenFormat(response))
+                } else {
+                    Err(auth::Error::TokenFormat(response))
+                }
             }
         }
-        Err(auth::Error::TokenFormat(response))
     }
 }
 
