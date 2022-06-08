@@ -31,6 +31,8 @@ struct Claims<'a> {
     aud: &'a str,
     iat: u64,
     exp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_audience: Option<&'a str>,
 }
 
 #[derive(serde::Serialize)]
@@ -48,6 +50,7 @@ pub struct ServiceAccount {
     token_uri_str: String,
     scopes: String,
     client_email: String,
+    audience: Option<String>,
 }
 
 impl ServiceAccount {
@@ -60,6 +63,7 @@ impl ServiceAccount {
             token_uri_str: sa.token_uri,
             scopes: sa.scopes.join(" "),
             client_email: sa.client_email,
+            audience: sa.audience.map(Into::into),
         }
     }
 }
@@ -81,6 +85,7 @@ impl token::Fetcher for ServiceAccount {
             aud: &self.token_uri_str,
             iat,
             exp: iat + EXPIRE,
+            target_audience: self.audience.as_deref(),
         };
 
         let req = self.inner.request(&self.token_uri, &Payload {

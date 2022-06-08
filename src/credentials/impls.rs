@@ -17,11 +17,12 @@ pub(super) fn from_api_key(key: String) -> Result<Credentials> {
 /// - On Google Compute Engine, it fetches credentials from the metadata server.
 pub(super) fn find_default(
     scopes: &'static [&'static str],
+    audience: Option<&'static str>,
 ) -> impl Future<Output = Result<Credentials>> + 'static {
     async move {
-        let credentials = if let Some(c) = from_env(scopes)? {
+        let credentials = if let Some(c) = from_env(scopes, audience)? {
             c
-        } else if let Some(c) = from_well_known_file(scopes)? {
+        } else if let Some(c) = from_well_known_file(scopes, audience)? {
             c
         } else if let Some(c) = from_metadata(None, scopes).await? {
             c
@@ -32,11 +33,14 @@ pub(super) fn find_default(
     }
 }
 
-pub(super) fn from_env(scopes: &'static [&'static str]) -> Result<Option<Credentials>> {
+pub(super) fn from_env(
+    scopes: &'static [&'static str],
+    audience: Option<&'static str>,
+) -> Result<Option<Credentials>> {
     const NAME: &str = "GOOGLE_APPLICATION_CREDENTIALS";
     trace!("try getting `{}` from environment variable", NAME);
     match env::var(NAME) {
-        Ok(path) => from_json_file(path, scopes).map(Some),
+        Ok(path) => from_json_file(path, scopes, audience).map(Some),
         Err(err) => {
             trace!("failed to get environment variable: {:?}", err);
             Ok(None)
@@ -44,7 +48,10 @@ pub(super) fn from_env(scopes: &'static [&'static str]) -> Result<Option<Credent
     }
 }
 
-pub(super) fn from_well_known_file(scopes: &'static [&'static str]) -> Result<Option<Credentials>> {
+pub(super) fn from_well_known_file(
+    scopes: &'static [&'static str], 
+    audience: Option<&'static str>,
+) -> Result<Option<Credentials>> {
     let path = {
         let mut buf = {
             #[cfg(target_os = "windows")]
@@ -66,7 +73,7 @@ pub(super) fn from_well_known_file(scopes: &'static [&'static str]) -> Result<Op
 
     trace!("well known file path is {:?}", path);
     if path.exists() {
-        from_json_file(path, scopes).map(Some)
+        from_json_file(path, scopes, audience).map(Some)
     } else {
         trace!("no file exists at {:?}", path);
         Ok(None)
@@ -76,17 +83,23 @@ pub(super) fn from_well_known_file(scopes: &'static [&'static str]) -> Result<Op
 pub(super) fn from_json_file(
     path: impl AsRef<Path>,
     scopes: &'static [&'static str],
+    audience: Option<&'static str>,
 ) -> Result<Credentials> {
     trace!("try reading credentials file from {:?}", path.as_ref());
     let json = fs::read_to_string(path).map_err(Error::CredentialsFile)?;
-    from_json(json.as_bytes(), scopes)
+    from_json(json.as_bytes(), scopes, audience)
 }
 
-pub(super) fn from_json(json: &[u8], scopes: &'static [&'static str]) -> Result<Credentials> {
+pub(super) fn from_json(
+    json: &[u8],
+    scopes: &'static [&'static str],
+    audience: Option<&'static str>,
+) -> Result<Credentials> {
     trace!("try deserializing to service account credentials");
     let service_account = match serde_json::from_slice::<ServiceAccount>(json) {
         Ok(mut sa) => {
             sa.scopes = scopes;
+            sa.audience = audience;
             return Ok(Credentials::ServiceAccount(sa));
         }
         Err(err) => {
@@ -160,11 +173,13 @@ mod test {
 "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
 "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/[SERVICE-ACCOUNT-EMAIL]"
 }"#,
-                &[]
+                &[],
+                None,
             )
             .unwrap(),
             Credentials::ServiceAccount(ServiceAccount {
                 scopes: &[],
+                audience: None,
                 client_email: "[SERVICE-ACCOUNT-EMAIL]".into(),
                 private_key_id: "[KEY-ID]".into(),
                 private_key:
@@ -181,7 +196,8 @@ mod test {
   "refresh_token": "refresh-xxx",
   "type": "authorized_user"
 }"#,
-                &[]
+                &[],
+                None,
             )
             .unwrap(),
             Credentials::User(User {

@@ -43,6 +43,8 @@ pub struct User {
 pub struct ServiceAccount {
     #[serde(skip)]
     pub(crate) scopes: &'static [&'static str],
+    #[serde(skip)]
+    pub(crate) audience: Option<&'static str>,
     // json fields
     pub(crate) client_email: String,
     pub(crate) private_key_id: String,
@@ -81,6 +83,7 @@ impl<'a> Default for Source<'a> {
 
 pub struct Builder<'a> {
     scopes: &'static [&'static str],
+    audience: Option<&'static str>,
     source: Source<'a>,
 }
 
@@ -89,6 +92,7 @@ impl<'a> Default for Builder<'a> {
         Self {
             scopes: &["https://www.googleapis.com/auth/cloud-platform"],
             source: Default::default(),
+            audience: Default::default(),
         }
     }
 }
@@ -134,13 +138,18 @@ impl<'a> Builder<'a> {
         self
     }
 
+    pub fn audience(mut self, audience: &'static str) -> Self {
+        self.audience = Some(audience);
+        self
+    }
+
     pub async fn build(self) -> Result<Credentials> {
         match self.source {
             Source::None => Ok(Credentials::None),
-            Source::Default => impls::find_default(self.scopes).await,
+            Source::Default => impls::find_default(self.scopes, self.audience).await,
             Source::ApiKey { key } => impls::from_api_key(key),
-            Source::Json { data } => impls::from_json(data, self.scopes),
-            Source::JsonFile { path } => impls::from_json_file(path, self.scopes),
+            Source::Json { data } => impls::from_json(data, self.scopes, self.audience),
+            Source::JsonFile { path } => impls::from_json_file(path, self.scopes, self.audience),
             Source::Metadata { account } => Ok(impls::from_metadata(account, self.scopes)
                 .await?
                 .expect("this process must be running on GCE")),
