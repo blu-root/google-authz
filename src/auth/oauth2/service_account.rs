@@ -28,7 +28,8 @@ fn header(typ: impl Into<String>, key_id: impl Into<String>) -> Header {
 #[derive(serde::Serialize)]
 struct Claims<'a> {
     iss: &'a str,
-    scope: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<&'a str>,
     aud: &'a str,
     iat: u64,
     exp: u64,
@@ -84,7 +85,11 @@ impl token::Fetcher for ServiceAccount {
         let iat = issued_at();
         let claims = Claims {
             iss: &self.client_email,
-            scope: &self.scopes,
+            scope: if self.audience.is_some() {
+                None
+            } else {
+                Some(&self.scopes)
+            },
             aud: &self.token_uri_str,
             iat,
             exp: iat + EXPIRE,
