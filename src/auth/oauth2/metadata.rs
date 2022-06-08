@@ -26,7 +26,7 @@ impl Metadata {
     }
 }
 
-fn path_and_query(account: Option<String>, scopes: &'static [&'static str]) -> String {
+fn path_and_query(account: Option<String>, scopes: Vec<String>) -> String {
     let mut path_and_query = "/computeMetadata/v1/instance/service-accounts/".to_owned();
     path_and_query.push_str(account.as_ref().map_or("default", String::as_str));
     path_and_query.push_str("/token");
@@ -59,17 +59,17 @@ mod test {
     #[test]
     fn test_path_and_query() {
         assert_eq!(
-            &path_and_query(None, &[]),
+            &path_and_query(None, vec![]),
             "/computeMetadata/v1/instance/service-accounts/default/token"
         );
 
         assert_eq!(
-            &path_and_query(None, &["https://www.googleapis.com/auth/cloud-platform"]),
+            &path_and_query(None, vec!["https://www.googleapis.com/auth/cloud-platform".to_owned()]),
             "/computeMetadata/v1/instance/service-accounts/default/token?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform"
         );
 
         assert_eq!(
-            &path_and_query(None, &["scope1", "scope2"]),
+            &path_and_query(None, vec!["scope1".to_owned(), "scope2".to_owned()]),
             "/computeMetadata/v1/instance/service-accounts/default/token?scopes=scope1%2Cscope2"
         );
     }
