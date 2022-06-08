@@ -33,6 +33,8 @@ struct Claims<'a> {
     exp: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_audience: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sub: Option<&'a str>,
 }
 
 #[derive(serde::Serialize)]
@@ -86,6 +88,11 @@ impl token::Fetcher for ServiceAccount {
             iat,
             exp: iat + EXPIRE,
             target_audience: self.audience.as_deref(),
+            sub: if self.audience.is_some() {
+                Some(&self.client_email)
+            } else {
+                None
+            }
         };
 
         let req = self.inner.request(&self.token_uri, &Payload {
