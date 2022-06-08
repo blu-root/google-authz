@@ -95,5 +95,10 @@ mod test {
             &path_and_query(None, vec!["scope1".to_owned(), "scope2".to_owned()], None),
             "/computeMetadata/v1/instance/service-accounts/default/token?scopes=scope1%2Cscope2"
         );
+
+        assert_eq!(
+            &path_and_query(None, vec![], Some("https://some-service.url".to_owned())),
+            "/computeMetadata/v1/instance/service-accounts/default/token?audience=https%3A%2F%2Fsome-service.url"
+        )
     }
 }
