@@ -41,7 +41,11 @@ fn path_and_query(
 ) -> String {
     let mut path_and_query = "/computeMetadata/v1/instance/service-accounts/".to_owned();
     path_and_query.push_str(account.as_ref().map_or("default", String::as_str));
-    path_and_query.push_str("/token");
+    if audience.is_some() {
+        path_and_query.push_str("/identity");
+    } else {
+        path_and_query.push_str("/token");
+    }
     if let Some(aud) = audience {
         path_and_query.push('?');
         let query = AudienceQuery {
@@ -98,7 +102,7 @@ mod test {
 
         assert_eq!(
             &path_and_query(None, vec![], Some("https://some-service.url".to_owned())),
-            "/computeMetadata/v1/instance/service-accounts/default/token?audience=https%3A%2F%2Fsome-service.url"
+            "/computeMetadata/v1/instance/service-accounts/default/identity?audience=https%3A%2F%2Fsome-service.url"
         )
     }
 }
