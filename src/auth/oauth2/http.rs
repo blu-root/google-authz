@@ -19,8 +19,12 @@ pub(super) struct Client {
 impl Client {
     pub fn new() -> Client {
         let https = connection_builder().https_only().enable_http2().build();
-        let user_agent =
-            concat!("github.com/mechiru/", env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
+        let user_agent = concat!(
+            "github.com/mechiru/",
+            env!("CARGO_PKG_NAME"),
+            " v",
+            env!("CARGO_PKG_VERSION")
+        );
         Self {
             inner: hyper::Client::builder().build(https),
             user_agent: HeaderValue::from_static(user_agent),

@@ -1,4 +1,4 @@
-use std::{convert::TryFrom as _, env, fs, future::Future, path::Path, str::FromStr as _};
+use std::{convert::TryFrom as _, env, fs, path::Path, str::FromStr as _};
 
 use hyper::http::uri::PathAndQuery;
 use tracing::trace;
@@ -15,28 +15,38 @@ pub(super) fn from_api_key(key: String) -> Result<Credentials> {
 /// - A JSON file whose path is specified by the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 /// - A JSON file in a location known to the gcloud command-line tool.
 /// - On Google Compute Engine, it fetches credentials from the metadata server.
-pub(super) fn find_default(
-    scopes: &'static [&'static str],
-) -> impl Future<Output = Result<Credentials>> + 'static {
-    async move {
-        let credentials = if let Some(c) = from_env(scopes)? {
-            c
-        } else if let Some(c) = from_well_known_file(scopes)? {
-            c
-        } else if let Some(c) = from_metadata(None, scopes).await? {
-            c
-        } else {
-            return Err(Error::CredentialsSource);
-        };
-        Ok(credentials)
-    }
+pub(super) async fn find_default<'a, S, T>(
+    scopes: &'a [S],
+    audience: &'a Option<T>,
+) -> Result<Credentials>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
+    let credentials = if let Some(c) = from_env(scopes, audience)? {
+        c
+    } else if let Some(c) = from_well_known_file(scopes, audience)? {
+        c
+    } else if let Some(c) = from_metadata(None, scopes, audience).await? {
+        c
+    } else {
+        return Err(Error::CredentialsSource);
+    };
+    Ok(credentials)
 }
 
-pub(super) fn from_env(scopes: &'static [&'static str]) -> Result<Option<Credentials>> {
+pub(super) fn from_env<'a, S, T>(
+    scopes: &'a [S],
+    audience: &'a Option<T>,
+) -> Result<Option<Credentials>>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     const NAME: &str = "GOOGLE_APPLICATION_CREDENTIALS";
     trace!("try getting `{}` from environment variable", NAME);
     match env::var(NAME) {
-        Ok(path) => from_json_file(path, scopes).map(Some),
+        Ok(path) => from_json_file(path, scopes, audience).map(Some),
         Err(err) => {
             trace!("failed to get environment variable: {:?}", err);
             Ok(None)
@@ -44,7 +54,14 @@ pub(super) fn from_env(scopes: &'static [&'static str]) -> Result<Option<Credent
     }
 }
 
-pub(super) fn from_well_known_file(scopes: &'static [&'static str]) -> Result<Option<Credentials>> {
+pub(super) fn from_well_known_file<'a, S, T>(
+    scopes: &'a [S],
+    audience: &'a Option<T>,
+) -> Result<Option<Credentials>>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     let path = {
         let mut buf = {
             #[cfg(target_os = "windows")]
@@ -66,31 +83,48 @@ pub(super) fn from_well_known_file(scopes: &'static [&'static str]) -> Result<Op
 
     trace!("well known file path is {:?}", path);
     if path.exists() {
-        from_json_file(path, scopes).map(Some)
+        from_json_file(path, scopes, audience).map(Some)
     } else {
         trace!("no file exists at {:?}", path);
         Ok(None)
     }
 }
 
-pub(super) fn from_json_file(
+pub(super) fn from_json_file<'a, S, T>(
     path: impl AsRef<Path>,
-    scopes: &'static [&'static str],
-) -> Result<Credentials> {
+    scopes: &'a [S],
+    audience: &'a Option<T>,
+) -> Result<Credentials>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     trace!("try reading credentials file from {:?}", path.as_ref());
     let json = fs::read_to_string(path).map_err(Error::CredentialsFile)?;
-    from_json(json.as_bytes(), scopes)
+    from_json(json.as_bytes(), scopes, audience)
 }
 
-pub(super) fn from_json(json: &[u8], scopes: &'static [&'static str]) -> Result<Credentials> {
+pub(super) fn from_json<'a, S, T>(
+    json: &[u8],
+    scopes: &'a [S],
+    audience: &'a Option<T>,
+) -> Result<Credentials>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     trace!("try deserializing to service account credentials");
     let service_account = match serde_json::from_slice::<ServiceAccount>(json) {
         Ok(mut sa) => {
-            sa.scopes = scopes;
+            sa.scopes = scopes.iter().map(|s| s.as_ref().into()).collect();
+            sa.audience = audience.as_ref().map(|s| s.into());
             return Ok(Credentials::ServiceAccount(sa));
         }
         Err(err) => {
-            trace!("failed deserialize to service account credentials: {:?}", err);
+            trace!(
+                "failed deserialize to service account credentials: {:?}",
+                err
+            );
             err
         }
     };
@@ -98,7 +132,7 @@ pub(super) fn from_json(json: &[u8], scopes: &'static [&'static str]) -> Result<
     trace!("try deserializing to user credentials");
     let user = match serde_json::from_slice::<User>(json) {
         Ok(mut user) => {
-            user.scopes = scopes;
+            user.scopes = scopes.iter().map(|s| s.as_ref().into()).collect();
             return Ok(Credentials::User(user));
         }
         Err(err) => {
@@ -107,30 +141,44 @@ pub(super) fn from_json(json: &[u8], scopes: &'static [&'static str]) -> Result<
         }
     };
 
-    Err(Error::CredentialsFormat { user, service_account })
+    Err(Error::CredentialsFormat {
+        user,
+        service_account,
+    })
 }
 
-pub(super) fn from_metadata(
+pub(super) async fn from_metadata<'a, S, T>(
     account: Option<String>,
-    scopes: &'static [&'static str],
-) -> impl Future<Output = Result<Option<Credentials>>> + 'static {
+    scopes: &[S],
+    audience: &'a Option<T>,
+) -> Result<Option<Credentials>>
+where
+    S: AsRef<str>,
+    String: From<&'a T>,
+{
     let client = gcemeta::Client::new();
-    async move {
-        // Check if the account is valid as path string.
-        if let Some(ref account) = account {
-            let part = PathAndQuery::from_str(account).map_err(gcemeta::Error::Uri)?;
-            assert_eq!(part.path(), account);
-        }
+    // Check if the account is valid as path string.
+    if let Some(ref account) = account {
+        let part = PathAndQuery::from_str(account).map_err(gcemeta::Error::Uri)?;
+        assert_eq!(part.path(), account);
+    }
 
-        trace!("try checking if this process is running on GCE");
-        let on = client.on_gce().await?;
-        trace!("this process is running on GCE: {}", on);
+    trace!("try checking if this process is running on GCE");
+    let on = client.on_gce().await?;
+    trace!("this process is running on GCE: {}", on);
 
-        if on {
-            Ok(Some(Credentials::Metadata(Metadata { client, scopes, account }.into())))
-        } else {
-            Ok(None)
-        }
+    if on {
+        Ok(Some(Credentials::Metadata(
+            Metadata {
+                client,
+                scopes: scopes.iter().map(|s| s.as_ref().into()).collect(),
+                account,
+                audience: audience.as_ref().map(|s| s.into()),
+            }
+            .into(),
+        )))
+    } else {
+        Ok(None)
     }
 }
 
@@ -141,7 +189,10 @@ mod test {
     #[test]
     fn test_from_api_key() {
         assert!(from_api_key("こんにちは".into()).is_err());
-        assert_eq!(from_api_key("api-key".into()).unwrap(), Credentials::ApiKey("api-key".into()));
+        assert_eq!(
+            from_api_key("api-key".into()).unwrap(),
+            Credentials::ApiKey("api-key".into())
+        );
     }
 
     #[test]
@@ -160,11 +211,13 @@ mod test {
 "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
 "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/[SERVICE-ACCOUNT-EMAIL]"
 }"#,
-                &[]
+                &[] as &[String],
+                &None as &Option<String>,
             )
             .unwrap(),
             Credentials::ServiceAccount(ServiceAccount {
-                scopes: &[],
+                scopes: vec![],
+                audience: None,
                 client_email: "[SERVICE-ACCOUNT-EMAIL]".into(),
                 private_key_id: "[KEY-ID]".into(),
                 private_key:
@@ -181,11 +234,12 @@ mod test {
   "refresh_token": "refresh-xxx",
   "type": "authorized_user"
 }"#,
-                &[]
+                &[] as &[String],
+                &None as &Option<String>,
             )
             .unwrap(),
             Credentials::User(User {
-                scopes: &[],
+                scopes: vec![],
                 client_id: "xxx.apps.googleusercontent.com".into(),
                 client_secret: "secret-xxx".into(),
                 refresh_token: "refresh-xxx".into(),

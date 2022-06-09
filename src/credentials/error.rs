@@ -14,7 +14,10 @@ pub enum Error {
     #[error(
         "user or service account credentials format error: user={user}, service_account={service_account})"
     )]
-    CredentialsFormat { user: serde_json::Error, service_account: serde_json::Error },
+    CredentialsFormat {
+        user: serde_json::Error,
+        service_account: serde_json::Error,
+    },
 }
 
 /// Wrapper for the `Result` type with an [`Error`](Error).

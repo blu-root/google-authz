@@ -41,14 +41,17 @@ impl fmt::Debug for User {
 
 impl token::Fetcher for User {
     fn fetch(&self) -> token::ResponseFuture {
-        let req = self.inner.request(&self.token_uri, &Payload {
-            client_id: &self.credentials.client_id,
-            client_secret: &self.credentials.client_secret,
-            grant_type: "refresh_token",
-            // The reflesh token is not included in the response from google's server,
-            // so it always uses the specified refresh token from the file.
-            refresh_token: &self.credentials.refresh_token,
-        });
+        let req = self.inner.request(
+            &self.token_uri,
+            &Payload {
+                client_id: &self.credentials.client_id,
+                client_secret: &self.credentials.client_secret,
+                grant_type: "refresh_token",
+                // The reflesh token is not included in the response from google's server,
+                // so it always uses the specified refresh token from the file.
+                refresh_token: &self.credentials.refresh_token,
+            },
+        );
         Box::pin(self.inner.send(req))
     }
 }

@@ -2,6 +2,7 @@ use std::{fmt, time::SystemTime};
 
 use hyper::Uri;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use tracing::trace;
 
 use crate::{
     auth::oauth2::{http::Client, token},
@@ -27,10 +28,15 @@ fn header(typ: impl Into<String>, key_id: impl Into<String>) -> Header {
 #[derive(serde::Serialize)]
 struct Claims<'a> {
     iss: &'a str,
-    scope: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<&'a str>,
     aud: &'a str,
     iat: u64,
     exp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_audience: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sub: Option<&'a str>,
 }
 
 #[derive(serde::Serialize)]
@@ -48,6 +54,7 @@ pub struct ServiceAccount {
     token_uri_str: String,
     scopes: String,
     client_email: String,
+    audience: Option<String>,
 }
 
 impl ServiceAccount {
@@ -60,6 +67,7 @@ impl ServiceAccount {
             token_uri_str: sa.token_uri,
             scopes: sa.scopes.join(" "),
             client_email: sa.client_email,
+            audience: sa.audience.map(Into::into),
         }
     }
 }
@@ -77,16 +85,32 @@ impl token::Fetcher for ServiceAccount {
         let iat = issued_at();
         let claims = Claims {
             iss: &self.client_email,
-            scope: &self.scopes,
+            scope: if self.audience.is_some() {
+                None
+            } else {
+                Some(&self.scopes)
+            },
             aud: &self.token_uri_str,
             iat,
             exp: iat + EXPIRE,
+            target_audience: self.audience.as_deref(),
+            sub: if self.audience.is_some() {
+                Some(&self.client_email)
+            } else {
+                None
+            },
         };
 
-        let req = self.inner.request(&self.token_uri, &Payload {
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: &encode(&self.header, &claims, &self.private_key).unwrap(),
-        });
+        let assertion = encode(&self.header, &claims, &self.private_key).unwrap();
+        trace!(%assertion);
+
+        let req = self.inner.request(
+            &self.token_uri,
+            &Payload {
+                grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                assertion: &assertion,
+            },
+        );
         Box::pin(self.inner.send(req))
     }
 }

@@ -31,7 +31,7 @@ impl Credentials {
 #[derive(Debug, serde::Deserialize)]
 pub struct User {
     #[serde(skip)]
-    pub(crate) scopes: &'static [&'static str],
+    pub(crate) scopes: Vec<String>,
     // json fields
     pub(crate) client_id: String,
     pub(crate) client_secret: String,
@@ -42,7 +42,9 @@ pub struct User {
 #[derive(Debug, serde::Deserialize)]
 pub struct ServiceAccount {
     #[serde(skip)]
-    pub(crate) scopes: &'static [&'static str],
+    pub(crate) scopes: Vec<String>,
+    #[serde(skip)]
+    pub(crate) audience: Option<String>,
     // json fields
     pub(crate) client_email: String,
     pub(crate) private_key_id: String,
@@ -53,7 +55,8 @@ pub struct ServiceAccount {
 #[derive(Debug)]
 pub struct Metadata {
     pub(crate) client: gcemeta::Client<HttpConnector>,
-    pub(crate) scopes: &'static [&'static str],
+    pub(crate) scopes: Vec<String>,
+    pub(crate) audience: Option<String>,
     pub(crate) account: Option<String>,
 }
 
@@ -80,15 +83,17 @@ impl<'a> Default for Source<'a> {
 }
 
 pub struct Builder<'a> {
-    scopes: &'static [&'static str],
+    scopes: Vec<String>,
+    audience: Option<String>,
     source: Source<'a>,
 }
 
 impl<'a> Default for Builder<'a> {
     fn default() -> Self {
         Self {
-            scopes: &["https://www.googleapis.com/auth/cloud-platform"],
+            scopes: vec!["https://www.googleapis.com/auth/cloud-platform".to_owned()],
             source: Default::default(),
+            audience: Default::default(),
         }
     }
 }
@@ -124,26 +129,35 @@ impl<'a> Builder<'a> {
 
     #[must_use]
     pub fn metadata(mut self, account: impl Into<Option<String>>) -> Self {
-        self.source = Source::Metadata { account: account.into() };
+        self.source = Source::Metadata {
+            account: account.into(),
+        };
         self
     }
 
     #[must_use]
-    pub fn scopes(mut self, scopes: &'static [&'static str]) -> Self {
-        self.scopes = scopes;
+    pub fn scopes(mut self, scopes: &[&str]) -> Self {
+        self.scopes = scopes.iter().map(|&s| s.into()).collect();
+        self
+    }
+
+    pub fn audience<S: Into<String>>(mut self, audience: S) -> Self {
+        self.audience = Some(audience.into());
         self
     }
 
     pub async fn build(self) -> Result<Credentials> {
         match self.source {
             Source::None => Ok(Credentials::None),
-            Source::Default => impls::find_default(self.scopes).await,
+            Source::Default => impls::find_default(&self.scopes, &self.audience).await,
             Source::ApiKey { key } => impls::from_api_key(key),
-            Source::Json { data } => impls::from_json(data, self.scopes),
-            Source::JsonFile { path } => impls::from_json_file(path, self.scopes),
-            Source::Metadata { account } => Ok(impls::from_metadata(account, self.scopes)
-                .await?
-                .expect("this process must be running on GCE")),
+            Source::Json { data } => impls::from_json(data, &self.scopes, &self.audience),
+            Source::JsonFile { path } => impls::from_json_file(path, &self.scopes, &self.audience),
+            Source::Metadata { account } => {
+                Ok(impls::from_metadata(account, &self.scopes, &self.audience)
+                    .await?
+                    .expect("this process must be running on GCE"))
+            }
         }
     }
 }
